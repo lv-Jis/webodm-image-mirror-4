@@ -1,0 +1,60 @@
+name: Mirror WebODM images
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" |
+            docker login ghcr.io \
+              --username "${{ github.actor }}" \
+              --password-stdin
+
+      - name: Mirror Linux AMD64 images
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -Eeuo pipefail
+
+          owner="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
+
+          mirror() {
+            source_image="$1"
+            target_image="ghcr.io/${owner}/$2"
+
+            docker pull --platform linux/amd64 "$source_image"
+            source_digest="$(docker image inspect "$source_image" \
+              --format '{{index .RepoDigests 0}}')"
+
+            docker tag "$source_image" "$target_image"
+            docker push "$target_image"
+
+            printf '%s -> %s\n' \
+              "$source_digest" "$target_image" \
+              >> "$GITHUB_STEP_SUMMARY"
+
+            docker image rm "$source_image" "$target_image" || true
+          }
+
+          mirror \
+            webodm/webodm_webapp:3.2.8 \
+            webodm-webapp:3.2.8
+
+          mirror \
+            webodm/webodm_db:latest \
+            webodm-db:2026-09-09
+
+          mirror \
+            redis:7.0.10 \
+            redis:7.0.10
