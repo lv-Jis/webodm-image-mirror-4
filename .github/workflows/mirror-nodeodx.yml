@@ -1,0 +1,59 @@
+name: Mirror NodeODX GPU
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Download verified crane
+        run: |
+          set -Eeuo pipefail
+
+          curl -fL --retry 3 \
+            -o "$RUNNER_TEMP/crane.tar.gz" \
+            https://github.com/google/go-containerregistry/releases/download/v0.22.1/go-containerregistry_Linux_x86_64.tar.gz
+
+          echo "0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0  $RUNNER_TEMP/crane.tar.gz" |
+            sha256sum -c -
+
+          tar -xzf "$RUNNER_TEMP/crane.tar.gz" \
+            -C "$RUNNER_TEMP" crane
+
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" |
+            docker login ghcr.io \
+              --username "${{ github.actor }}" \
+              --password-stdin
+
+      - name: Copy NodeODX GPU image
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -Eeuo pipefail
+
+          owner="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          source="webodm/nodeodx:gpu"
+          target="ghcr.io/${owner}/webodm-nodeodx:gpu"
+
+          source_digest="$("$RUNNER_TEMP/crane" digest --platform linux/amd64 "$source")"
+
+          "$RUNNER_TEMP/crane" copy \
+            --platform linux/amd64 \
+            "$source" "$target"
+
+          target_digest="$("$RUNNER_TEMP/crane" digest --platform linux/amd64 "$target")"
+
+          test "$source_digest" = "$target_digest"
+
+          echo "$source_digest -> $target" \
+            >> "$GITHUB_STEP_SUMMARY"
